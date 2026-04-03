@@ -4,6 +4,7 @@ node_modules/
 # Environment variables
 .env
 .env.*
+!.env.local.example
 .env.local
 .env.development.local
 .env.test.local
@@ -28,6 +29,10 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Supabase
+supabase/.branches
+supabase/.temp
 
 # Claude
 .claude/
