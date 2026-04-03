@@ -150,8 +150,10 @@ export async function POST(
   const images = listing.listing_images as Array<{ url: string }> | null;
   const imageUrl = images?.[0]?.url;
 
-  // Use server-side URL only — never trust the origin header
-  const origin = process.env.NEXT_PUBLIC_APP_URL ?? "";
+  // APP_URL is a runtime env var (read at request time); NEXT_PUBLIC_APP_URL is
+  // inlined at build time and may be empty if it wasn't set during the build.
+  const origin =
+    process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "";
 
   try {
     const session = await stripe.checkout.sessions.create({

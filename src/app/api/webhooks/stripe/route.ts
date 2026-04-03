@@ -138,7 +138,8 @@ export async function POST(request: Request) {
 
       // Insert system message with pickup link
       if (guestToken) {
-        const pickupUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/transaction/${transactionId}?token=${guestToken}`;
+        const appUrl = process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "";
+        const pickupUrl = `${appUrl}/transaction/${transactionId}?token=${guestToken}`;
         await supabase.from("messages").insert({
           transaction_id: transactionId,
           sender_role: "system",
