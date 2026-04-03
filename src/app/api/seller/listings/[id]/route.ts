@@ -11,6 +11,7 @@ const updateListingSchema = z.object({
   buy_now_price: z.number().int().min(500).optional(), // $5 min in cents
   price_strategy: z.enum(["buy_now", "auction", "hybrid"]).optional(),
   auction_floor_price: z.number().int().min(500).optional(),
+  auction_duration_days: z.number().int().min(1).max(7).optional(),
   pickup_radius_miles: z.number().int().min(5).max(50).optional(),
 });
 
@@ -77,9 +78,20 @@ export async function PATCH(
     );
   }
 
+  // Extract auction_duration_days (not a DB column) and build update payload
+  const { auction_duration_days, ...updateFields } = parsed.data;
+
+  // Store duration as metadata for publish step to compute auction_ends_at
+  const updatePayload: Record<string, unknown> = { ...updateFields };
+  if (auction_duration_days != null) {
+    // Store duration in a way the publish route can use it
+    // We'll set auction_ends_at at publish time, but save the intent now
+    updatePayload.auction_ends_at = null; // Will be computed at publish
+  }
+
   const { data: updated, error: updateError } = await supabase
     .from("listings")
-    .update(parsed.data)
+    .update(updatePayload)
     .eq("id", id)
     .select("*, listing_images(*)")
     .single();

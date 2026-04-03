@@ -3,6 +3,8 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { ImageGallery } from "@/components/storefront/ImageGallery";
+import { BidPanel } from "@/components/storefront/BidPanel";
+import { BuyNowButton } from "@/components/storefront/BuyNowButton";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -175,46 +177,61 @@ export default async function ListingDetailPage({ params }: PageProps) {
               </div>
             </div>
 
-            {/* Price Panel */}
-            <div className="border border-gray-200 rounded-lg p-5 space-y-4">
-              {displayPrice != null && (
+            {/* Auction Bid Panel — shown for auction and hybrid listings */}
+            {listing.price_strategy !== "buy_now" && listing.auction_ends_at && (
+              <BidPanel
+                listingId={listing.id}
+                auctionEndsAt={listing.auction_ends_at}
+                floorPrice={listing.auction_floor_price ?? 500}
+                initialBidCount={listing.bid_count ?? 0}
+                initialCurrentBid={listing.current_bid ?? null}
+              />
+            )}
+
+            {/* Fixed Price Panel — shown for buy_now only listings */}
+            {listing.price_strategy === "buy_now" && displayPrice != null && (
+              <div className="border border-gray-200 rounded-lg p-5 space-y-4">
                 <div>
                   <p className="text-3xl font-bold text-gray-900">
                     {formatPrice(displayPrice)}
                   </p>
-                  {listing.current_bid != null && (
-                    <p className="text-sm text-gray-500 mt-1">
-                      Current bid ({listing.bid_count} bid{listing.bid_count !== 1 ? "s" : ""})
-                    </p>
-                  )}
-                  {listing.ai_suggested_price && listing.ai_suggested_price !== displayPrice && (
-                    <p className="text-xs text-gray-400 mt-1">
-                      AI suggested: {formatPrice(listing.ai_suggested_price)}
-                    </p>
-                  )}
+                  {listing.ai_suggested_price &&
+                    listing.ai_suggested_price !== displayPrice && (
+                      <p className="text-xs text-gray-400 mt-1">
+                        AI suggested: {formatPrice(listing.ai_suggested_price)}
+                      </p>
+                    )}
                 </div>
-              )}
 
-              {/* Buy Now / Bid buttons — placeholder for Phase 4-5 */}
-              {listing.buy_now_available && listing.buy_now_price && (
-                <button className="w-full py-3 px-4 bg-gray-900 text-white font-semibold rounded-lg hover:bg-gray-700 transition-colors">
-                  Buy Now — {formatPrice(listing.buy_now_price)}
-                </button>
-              )}
+                <BuyNowButton
+                  listingId={listing.id}
+                  buyNowPrice={listing.buy_now_price!}
+                />
 
-              {listing.price_strategy !== "buy_now" && (
-                <button className="w-full py-3 px-4 border-2 border-gray-900 text-gray-900 font-semibold rounded-lg hover:bg-gray-50 transition-colors">
-                  Place Bid
-                </button>
-              )}
-
-              {/* Fee transparency */}
-              {displayPrice != null && (
                 <p className="text-xs text-gray-400 text-center">
-                  3.5% platform fee ({formatPrice(platformFee)}) applied at checkout
+                  3.5% platform fee ({formatPrice(platformFee)}) applied at
+                  checkout
                 </p>
+              </div>
+            )}
+
+            {/* Buy Now option for hybrid listings (shown above bid panel) */}
+            {listing.price_strategy === "hybrid" &&
+              listing.buy_now_available &&
+              listing.buy_now_price && (
+                <BuyNowButton
+                  listingId={listing.id}
+                  buyNowPrice={listing.buy_now_price}
+                />
               )}
-            </div>
+
+            {/* Fee transparency for auction listings */}
+            {listing.price_strategy !== "buy_now" && displayPrice != null && (
+              <p className="text-xs text-gray-400 text-center">
+                3.5% platform fee ({formatPrice(platformFee)}) applied at
+                checkout
+              </p>
+            )}
 
             {/* Seller info */}
             {seller && (

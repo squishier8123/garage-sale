@@ -39,13 +39,17 @@ interface PipelineResult {
   };
 }
 
+type PriceStrategy = "buy_now" | "auction" | "hybrid";
+
 interface DraftFields {
   title: string;
   description: string;
   category: string;
   condition: string;
   buy_now_price: number;
-  price_strategy: string;
+  price_strategy: PriceStrategy;
+  auction_floor_price: number;
+  auction_duration_days: number;
   pickup_radius_miles: number;
 }
 
@@ -57,9 +61,45 @@ const CONDITION_OPTIONS = [
   { value: "poor", label: "Poor" },
 ];
 
+const STRATEGY_OPTIONS: Array<{ value: PriceStrategy; label: string; desc: string }> = [
+  { value: "buy_now", label: "Fixed Price", desc: "Sell at a set price" },
+  { value: "auction", label: "Auction", desc: "Let buyers bid" },
+  { value: "hybrid", label: "Auction + Buy Now", desc: "Auction with instant buy option" },
+];
+
+const DURATION_OPTIONS = [
+  { value: 1, label: "1 day" },
+  { value: 3, label: "3 days" },
+  { value: 5, label: "5 days" },
+  { value: 7, label: "7 days" },
+];
+
 function formatPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
+
+function isPriceValid(draft: DraftFields): boolean {
+  switch (draft.price_strategy) {
+    case "buy_now":
+      return draft.buy_now_price >= 500;
+    case "auction":
+      return draft.auction_floor_price >= 500;
+    case "hybrid":
+      return (
+        draft.buy_now_price >= 500 &&
+        draft.auction_floor_price >= 500 &&
+        draft.buy_now_price > draft.auction_floor_price
+      );
+    default:
+      return false;
+  }
+}
+
+const STRATEGY_LABELS: Record<PriceStrategy, string> = {
+  buy_now: "Fixed Price",
+  auction: "Auction",
+  hybrid: "Auction + Buy Now",
+};
 
 export function ListingWizard() {
   const router = useRouter();
@@ -78,6 +118,8 @@ export function ListingWizard() {
     condition: "good",
     buy_now_price: 0,
     price_strategy: "buy_now",
+    auction_floor_price: 0,
+    auction_duration_days: 3,
     pickup_radius_miles: 25,
   });
 
@@ -160,6 +202,8 @@ export function ListingWizard() {
         condition: listing.condition ?? "good",
         buy_now_price: listing.buy_now_price ?? 0,
         price_strategy: "buy_now",
+        auction_floor_price: 0,
+        auction_duration_days: 3,
         pickup_radius_miles: listing.pickup_radius_miles ?? 25,
       });
 
@@ -187,8 +231,10 @@ export function ListingWizard() {
             description: draft.description,
             category: draft.category,
             condition: draft.condition,
-            buy_now_price: draft.buy_now_price,
             price_strategy: draft.price_strategy,
+            buy_now_price: draft.price_strategy !== "auction" ? draft.buy_now_price : undefined,
+            auction_floor_price: draft.price_strategy !== "buy_now" ? draft.auction_floor_price : undefined,
+            auction_duration_days: draft.price_strategy !== "buy_now" ? draft.auction_duration_days : undefined,
             pickup_radius_miles: draft.pickup_radius_miles,
           }),
         },
@@ -212,9 +258,18 @@ export function ListingWizard() {
     setError(null);
 
     try {
+      const publishBody =
+        draft.price_strategy !== "buy_now"
+          ? { auction_duration_days: draft.auction_duration_days }
+          : undefined;
+
       const res = await fetch(
         `/api/seller/listings/${pipelineResult.listing.id}/publish`,
-        { method: "POST" },
+        {
+          method: "POST",
+          headers: publishBody ? { "Content-Type": "application/json" } : {},
+          body: publishBody ? JSON.stringify(publishBody) : undefined,
+        },
       );
 
       const data = await res.json();
@@ -475,37 +530,130 @@ export function ListingWizard() {
                 </div>
               )}
 
-              <Field label="Your Price (cents)">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-500">$</span>
-                  <input
-                    type="number"
-                    value={draft.buy_now_price / 100}
-                    onChange={(e) =>
-                      setDraft({
-                        ...draft,
-                        buy_now_price: Math.round(parseFloat(e.target.value || "0") * 100),
-                      })
-                    }
-                    min={5}
-                    step={0.5}
-                    className="w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
-                  />
-                  {draft.buy_now_price > 0 && draft.buy_now_price < 500 && (
-                    <span className="text-xs text-red-600">
-                      Minimum $5.00
-                    </span>
-                  )}
+              {/* Price Strategy Picker */}
+              <Field label="Selling Format">
+                <div className="grid grid-cols-3 gap-2">
+                  {STRATEGY_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() =>
+                        setDraft({ ...draft, price_strategy: opt.value })
+                      }
+                      className={`p-3 rounded-lg border text-left transition-colors ${
+                        draft.price_strategy === opt.value
+                          ? "border-gray-900 bg-gray-50"
+                          : "border-gray-200 hover:border-gray-300"
+                      }`}
+                    >
+                      <p className="text-sm font-medium text-gray-900">
+                        {opt.label}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-0.5">{opt.desc}</p>
+                    </button>
+                  ))}
                 </div>
               </Field>
 
-              {/* Fee preview */}
-              {draft.buy_now_price >= 500 && (
-                <p className="text-xs text-gray-500">
-                  Platform fee: {formatPrice(Math.round(draft.buy_now_price * 0.035))} (3.5%)
-                  — You receive: {formatPrice(draft.buy_now_price - Math.round(draft.buy_now_price * 0.035))}
-                </p>
+              {/* Buy Now Price — shown for buy_now and hybrid */}
+              {draft.price_strategy !== "auction" && (
+                <Field label="Buy Now Price">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-500">$</span>
+                    <input
+                      type="number"
+                      value={draft.buy_now_price / 100 || ""}
+                      onChange={(e) =>
+                        setDraft({
+                          ...draft,
+                          buy_now_price: Math.round(
+                            parseFloat(e.target.value || "0") * 100,
+                          ),
+                        })
+                      }
+                      min={5}
+                      step={0.5}
+                      className="w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+                    />
+                    {draft.buy_now_price > 0 && draft.buy_now_price < 500 && (
+                      <span className="text-xs text-red-600">Minimum $5.00</span>
+                    )}
+                  </div>
+                </Field>
               )}
+
+              {/* Auction fields — shown for auction and hybrid */}
+              {draft.price_strategy !== "buy_now" && (
+                <>
+                  <Field label="Starting / Floor Price">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-500">$</span>
+                      <input
+                        type="number"
+                        value={draft.auction_floor_price / 100 || ""}
+                        onChange={(e) =>
+                          setDraft({
+                            ...draft,
+                            auction_floor_price: Math.round(
+                              parseFloat(e.target.value || "0") * 100,
+                            ),
+                          })
+                        }
+                        min={5}
+                        step={0.5}
+                        className="w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+                      />
+                      {draft.auction_floor_price > 0 &&
+                        draft.auction_floor_price < 500 && (
+                          <span className="text-xs text-red-600">
+                            Minimum $5.00
+                          </span>
+                        )}
+                    </div>
+                  </Field>
+
+                  <Field label="Auction Duration">
+                    <div className="flex gap-2">
+                      {DURATION_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() =>
+                            setDraft({
+                              ...draft,
+                              auction_duration_days: opt.value,
+                            })
+                          }
+                          className={`px-4 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                            draft.auction_duration_days === opt.value
+                              ? "border-gray-900 bg-gray-50 text-gray-900"
+                              : "border-gray-200 text-gray-500 hover:border-gray-300"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
+                </>
+              )}
+
+              {/* Fee preview */}
+              {(() => {
+                const previewPrice =
+                  draft.price_strategy === "auction"
+                    ? draft.auction_floor_price
+                    : draft.buy_now_price;
+                if (previewPrice < 500) return null;
+                const fee = Math.round(previewPrice * 0.035);
+                return (
+                  <p className="text-xs text-gray-500">
+                    Platform fee: {formatPrice(fee)} (3.5%) — You receive:{" "}
+                    {formatPrice(previewPrice - fee)}
+                    {draft.price_strategy === "auction" && " (based on floor price)"}
+                  </p>
+                );
+              })()}
             </div>
 
             <Field label="Pickup Radius">
@@ -546,7 +694,7 @@ export function ListingWizard() {
           <div className="flex gap-3">
             <button
               onClick={handleSaveDraft}
-              disabled={saving || draft.buy_now_price < 500}
+              disabled={saving || !isPriceValid(draft)}
               className="flex-1 py-3 bg-gray-900 text-white font-semibold rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
             >
               {saving ? "Saving..." : "Save & Continue"}
@@ -582,11 +730,27 @@ export function ListingWizard() {
 
           <div className="bg-white border border-gray-200 rounded-lg p-4 text-left max-w-sm mx-auto">
             <p className="font-medium text-gray-900">{draft.title}</p>
-            <p className="text-lg font-bold mt-1">
-              {formatPrice(draft.buy_now_price)}
-            </p>
+            <div className="mt-1 space-y-0.5">
+              {draft.price_strategy !== "auction" && (
+                <p className="text-lg font-bold">
+                  {formatPrice(draft.buy_now_price)}
+                  {draft.price_strategy === "hybrid" && (
+                    <span className="text-sm font-normal text-gray-500 ml-1">
+                      Buy Now
+                    </span>
+                  )}
+                </p>
+              )}
+              {draft.price_strategy !== "buy_now" && (
+                <p className="text-sm text-gray-700">
+                  Starting bid: {formatPrice(draft.auction_floor_price)} —{" "}
+                  {draft.auction_duration_days}-day auction
+                </p>
+              )}
+            </div>
             <p className="text-xs text-gray-500 mt-1">
-              {draft.category} — {draft.condition} — {draft.pickup_radius_miles} mile radius
+              {STRATEGY_LABELS[draft.price_strategy]} — {draft.category} —{" "}
+              {draft.condition} — {draft.pickup_radius_miles} mi radius
             </p>
           </div>
 

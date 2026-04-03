@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { z } from "zod";
 
 interface ApiResponse<T> {
   success: boolean;
@@ -9,8 +10,14 @@ interface ApiResponse<T> {
 
 const LISTING_DURATION_DAYS = 30;
 
+const publishBodySchema = z
+  .object({
+    auction_duration_days: z.number().int().min(1).max(7).optional(),
+  })
+  .optional();
+
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse<ApiResponse<unknown>>> {
   const { id } = await params;
@@ -27,10 +34,24 @@ export async function POST(
     );
   }
 
+  // Parse optional body (for auction duration)
+  let auctionDurationDays: number | undefined;
+  try {
+    const body: unknown = await request.json();
+    const parsed = publishBodySchema.safeParse(body);
+    if (parsed.success && parsed.data) {
+      auctionDurationDays = parsed.data.auction_duration_days;
+    }
+  } catch {
+    // No body is fine — fixed-price listings don't need one
+  }
+
   // Fetch listing with ownership check
   const { data: listing } = await supabase
     .from("listings")
-    .select("id, seller_id, status, title, buy_now_price, category, condition")
+    .select(
+      "id, seller_id, status, title, buy_now_price, auction_floor_price, price_strategy, category, condition",
+    )
     .eq("id", id)
     .single();
 
@@ -50,24 +71,37 @@ export async function POST(
 
   if (listing.status !== "draft") {
     return NextResponse.json(
-      { success: false, error: `Cannot publish a listing with status "${listing.status}"` },
+      {
+        success: false,
+        error: `Cannot publish a listing with status "${listing.status}"`,
+      },
       { status: 400 },
     );
   }
 
   // Validate required fields before publish
   const missingFields: string[] = [];
-  if (!listing.title || listing.title === "Processing..." || listing.title === "Manual Entry Required") {
+  if (
+    !listing.title ||
+    listing.title === "Processing..." ||
+    listing.title === "Manual Entry Required"
+  ) {
     missingFields.push("title");
-  }
-  if (!listing.buy_now_price) {
-    missingFields.push("buy_now_price");
   }
   if (!listing.category) {
     missingFields.push("category");
   }
   if (!listing.condition) {
     missingFields.push("condition");
+  }
+
+  // Price validation depends on strategy
+  const strategy = listing.price_strategy ?? "buy_now";
+  if (strategy !== "auction" && !listing.buy_now_price) {
+    missingFields.push("buy_now_price");
+  }
+  if (strategy !== "buy_now" && !listing.auction_floor_price) {
+    missingFields.push("auction_floor_price");
   }
 
   if (missingFields.length > 0) {
@@ -93,17 +127,30 @@ export async function POST(
     );
   }
 
-  // Publish: set status, timestamps
+  // Publish: set status, timestamps, auction end time
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + LISTING_DURATION_DAYS * 24 * 60 * 60 * 1000);
+  const expiresAt = new Date(
+    now.getTime() + LISTING_DURATION_DAYS * 24 * 60 * 60 * 1000,
+  );
+
+  const updateData: Record<string, unknown> = {
+    status: "active",
+    published_at: now.toISOString(),
+    expires_at: expiresAt.toISOString(),
+  };
+
+  // Set auction_ends_at for auction/hybrid listings
+  if (strategy !== "buy_now") {
+    const durationDays = auctionDurationDays ?? 3;
+    const auctionEndsAt = new Date(
+      now.getTime() + durationDays * 24 * 60 * 60 * 1000,
+    );
+    updateData.auction_ends_at = auctionEndsAt.toISOString();
+  }
 
   const { data: published, error: updateError } = await supabase
     .from("listings")
-    .update({
-      status: "active",
-      published_at: now.toISOString(),
-      expires_at: expiresAt.toISOString(),
-    })
+    .update(updateData)
     .eq("id", id)
     .select("*, listing_images(*)")
     .single();
