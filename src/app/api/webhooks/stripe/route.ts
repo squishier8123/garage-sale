@@ -138,7 +138,7 @@ export async function POST(request: Request) {
 
       // Insert system message with pickup link
       if (guestToken) {
-        const appUrl = process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "https://garage-sale-theta.vercel.app";
+        const appUrl = (process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "https://garage-sale-theta.vercel.app").trim();
         const pickupUrl = `${appUrl}/transaction/${transactionId}?token=${guestToken}`;
         await supabase.from("messages").insert({
           transaction_id: transactionId,

@@ -152,10 +152,12 @@ export async function POST(
 
   // APP_URL is a runtime env var; NEXT_PUBLIC_APP_URL is build-time.
   // Hardcoded fallback ensures checkout never breaks if env vars are missing.
-  const origin =
+  // .trim() guards against trailing newlines from env var injection.
+  const origin = (
     process.env.APP_URL ??
     process.env.NEXT_PUBLIC_APP_URL ??
-    "https://garage-sale-theta.vercel.app";
+    "https://garage-sale-theta.vercel.app"
+  ).trim();
 
   try {
     const session = await stripe.checkout.sessions.create({
