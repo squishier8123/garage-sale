@@ -150,10 +150,12 @@ export async function POST(
   const images = listing.listing_images as Array<{ url: string }> | null;
   const imageUrl = images?.[0]?.url;
 
-  // APP_URL is a runtime env var (read at request time); NEXT_PUBLIC_APP_URL is
-  // inlined at build time and may be empty if it wasn't set during the build.
+  // APP_URL is a runtime env var; NEXT_PUBLIC_APP_URL is build-time.
+  // Hardcoded fallback ensures checkout never breaks if env vars are missing.
   const origin =
-    process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "";
+    process.env.APP_URL ??
+    process.env.NEXT_PUBLIC_APP_URL ??
+    "https://garage-sale-theta.vercel.app";
 
   try {
     const session = await stripe.checkout.sessions.create({
