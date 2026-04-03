@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { authenticateRequest, type AuthIdentity } from "@/lib/auth/guest-token";
 import { createClient } from "@/lib/supabase/server";
+
+const messageSchema = z.object({
+  body: z.string().min(1, "Message body is required").max(2000, "Message must be 2000 characters or less"),
+});
 
 interface ApiResponse<T> {
   success: boolean;
@@ -130,22 +135,17 @@ export async function POST(
     );
   }
 
-  const body = await request.json();
-  const messageBody = typeof body.body === "string" ? body.body.trim() : "";
+  const rawBody: unknown = await request.json();
+  const parsed = messageSchema.safeParse(rawBody);
 
-  if (!messageBody) {
+  if (!parsed.success) {
     return NextResponse.json(
-      { success: false, error: "Message body is required" },
+      { success: false, error: parsed.error.issues[0].message },
       { status: 400 },
     );
   }
 
-  if (messageBody.length > 2000) {
-    return NextResponse.json(
-      { success: false, error: "Message must be 2000 characters or less" },
-      { status: 400 },
-    );
-  }
+  const messageBody = parsed.data.body.trim();
 
   const admin = createAdminClient();
   const senderRole = identity.role === "seller" ? "seller" : "buyer";

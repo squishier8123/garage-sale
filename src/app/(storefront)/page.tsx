@@ -99,7 +99,13 @@ async function fetchListings(params: {
   }
 
   if (params.q) {
-    query = query.or(`title.ilike.%${params.q}%,description.ilike.%${params.q}%`);
+    // Sanitize search query — strip PostgREST special characters to prevent filter injection
+    const sanitized = params.q
+      .replace(/[(),.*]/g, "")
+      .slice(0, 100);
+    if (sanitized) {
+      query = query.or(`title.ilike.%${sanitized}%,description.ilike.%${sanitized}%`);
+    }
   }
 
   const { data, count, error } = await query;
@@ -142,10 +148,10 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       {/* Hero — only show when no search active */}
       {!params.q && !params.category && !hasLocation && (
         <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold tracking-tight text-gray-900 sm:text-5xl">
+          <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-gray-900 lg:text-5xl">
             Your Neighborhood Garage Sale
           </h1>
-          <p className="mt-4 text-lg text-gray-600 max-w-2xl mx-auto">
+          <p className="mt-3 sm:mt-4 text-base sm:text-lg text-gray-600 max-w-2xl mx-auto">
             Snap a photo, AI prices it, buyers find it. Sell your stuff locally
             with zero hassle.
           </p>

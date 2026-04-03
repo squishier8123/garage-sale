@@ -8,8 +8,8 @@ export default function StorefrontLayout({
   return (
     <>
       <header className="border-b bg-white sticky top-0 z-50">
-        <nav className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <Link href="/" className="text-xl font-bold">
+        <nav className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between">
+          <Link href="/" className="text-lg sm:text-xl font-bold">
             Garage Sale
           </Link>
           <div className="flex items-center gap-4">

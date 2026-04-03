@@ -7,6 +7,14 @@
     {
       "path": "/api/cron/expire-escrows",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/expire-listings",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/aggregate-analytics",
+      "schedule": "0 1 * * *"
     }
   ]
 }

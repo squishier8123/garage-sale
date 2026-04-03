@@ -1,8 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { stripe } from "@/lib/stripe/client";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { calculateFees } from "@/lib/services/fees";
+import { checkoutRateLimit } from "@/lib/security/arcjet";
 
 interface ApiResponse<T> {
   success: boolean;
@@ -18,8 +19,17 @@ const checkoutSchema = z.object({
 });
 
 export async function POST(
-  request: Request,
+  request: NextRequest,
 ): Promise<NextResponse<ApiResponse<{ checkout_url: string }>>> {
+  // Rate limit: 5 checkout attempts/minute per IP
+  const decision = await checkoutRateLimit.protect(request);
+  if (decision.isDenied()) {
+    return NextResponse.json(
+      { success: false, error: "Too many checkout attempts. Please wait." },
+      { status: 429 },
+    );
+  }
+
   const body: unknown = await request.json();
   const parsed = checkoutSchema.safeParse(body);
 
@@ -84,31 +94,46 @@ export async function POST(
   let txId = transaction_id;
 
   if (type === "buy_now") {
-    const { data: tx, error: txError } = await supabase
+    // Check for existing pending transaction to prevent duplicate reservations
+    const { data: existingTx } = await supabase
       .from("transactions")
-      .insert({
-        listing_id,
-        seller_id: listing.seller_id,
-        buyer_email: "pending@checkout", // Updated by webhook with actual email
-        item_price: fees.item_price,
-        platform_fee: fees.platform_fee,
-        platform_fee_rate: fees.platform_fee_rate,
-        total_charged: fees.total_charged,
-        status: "payment_pending",
-        escrow_status: "pending",
-        pickup_status: "pending",
-      })
       .select("id")
+      .eq("listing_id", listing_id)
+      .eq("status", "payment_pending")
       .single();
 
-    if (txError || !tx) {
-      return NextResponse.json(
-        { success: false, error: "Failed to create transaction" },
-        { status: 500 },
-      );
+    if (existingTx) {
+      // Reuse existing pending transaction instead of creating duplicates
+      txId = existingTx.id;
     }
 
-    txId = tx.id;
+    if (!txId) {
+      const { data: tx, error: txError } = await supabase
+        .from("transactions")
+        .insert({
+          listing_id,
+          seller_id: listing.seller_id,
+          buyer_email: "pending@checkout", // Updated by webhook with actual email
+          item_price: fees.item_price,
+          platform_fee: fees.platform_fee,
+          platform_fee_rate: fees.platform_fee_rate,
+          total_charged: fees.total_charged,
+          status: "payment_pending",
+          escrow_status: "pending",
+          pickup_status: "pending",
+        })
+        .select("id")
+        .single();
+
+      if (txError || !tx) {
+        return NextResponse.json(
+          { success: false, error: "Failed to create transaction" },
+          { status: 500 },
+        );
+      }
+
+      txId = tx.id;
+    }
 
     // Mark listing as no longer available for buy now during checkout
     // (will be fully marked as sold by webhook on successful payment)
@@ -125,9 +150,8 @@ export async function POST(
   const images = listing.listing_images as Array<{ url: string }> | null;
   const imageUrl = images?.[0]?.url;
 
-  // Create Stripe Checkout Session
-  const origin =
-    request.headers.get("origin") ?? process.env.NEXT_PUBLIC_APP_URL ?? "";
+  // Use server-side URL only — never trust the origin header
+  const origin = process.env.NEXT_PUBLIC_APP_URL ?? "";
 
   try {
     const session = await stripe.checkout.sessions.create({

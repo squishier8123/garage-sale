@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { z } from "zod";
+import { bidRateLimit } from "@/lib/security/arcjet";
 
 interface ApiResponse<T> {
   success: boolean;
@@ -16,8 +17,17 @@ const bidSchema = z.object({
 });
 
 export async function POST(
-  request: Request,
+  request: NextRequest,
 ): Promise<NextResponse<ApiResponse<unknown>>> {
+  // Rate limit: 10 bids/minute per IP
+  const decision = await bidRateLimit.protect(request);
+  if (decision.isDenied()) {
+    return NextResponse.json(
+      { success: false, error: "Too many bid attempts. Please wait." },
+      { status: 429 },
+    );
+  }
+
   const body: unknown = await request.json();
   const parsed = bidSchema.safeParse(body);
 

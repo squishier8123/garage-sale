@@ -14,11 +14,31 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Garage Sale",
+    default: "Garage Sale — AI-Powered Local Marketplace",
     template: "%s | Garage Sale",
   },
   description:
-    "AI-powered virtual garage sale. Snap a photo, get instant pricing, and sell locally.",
+    "AI-powered virtual garage sale. Snap a photo, get instant pricing, and sell locally. No fees until you sell.",
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_APP_URL ?? "https://garagesale.app",
+  ),
+  openGraph: {
+    type: "website",
+    siteName: "Garage Sale",
+    title: "Garage Sale — AI-Powered Local Marketplace",
+    description:
+      "Snap a photo, AI prices it, buyers find it. Sell your stuff locally with zero hassle.",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Garage Sale — AI-Powered Local Marketplace",
+    description:
+      "Snap a photo, AI prices it, buyers find it. Sell your stuff locally with zero hassle.",
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 export default function RootLayout({
