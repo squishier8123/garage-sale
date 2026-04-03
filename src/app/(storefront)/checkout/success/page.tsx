@@ -115,13 +115,11 @@ export default async function CheckoutSuccessPage({
         <ol className="space-y-2 text-sm text-gray-600">
           <li className="flex gap-2">
             <span className="font-medium text-gray-900">1.</span>
-            The seller will contact you at{" "}
-            <span className="font-medium">{tx.buyer_email}</span> to arrange
-            pickup
+            The seller will offer pickup time windows
           </li>
           <li className="flex gap-2">
             <span className="font-medium text-gray-900">2.</span>
-            You&apos;ll agree on a pickup time and location
+            You&apos;ll choose a time and coordinate via messages
           </li>
           <li className="flex gap-2">
             <span className="font-medium text-gray-900">3.</span>
@@ -131,10 +129,20 @@ export default async function CheckoutSuccessPage({
         </ol>
       </div>
 
+      {/* Pickup coordination link */}
+      {tx.pickup_address && (
+        <div className="mt-6 rounded-lg border border-gray-200 p-4">
+          <h2 className="text-sm font-semibold text-gray-900">
+            Pickup Location
+          </h2>
+          <p className="mt-1 text-sm text-gray-700">{tx.pickup_address}</p>
+        </div>
+      )}
+
       {/* Confirmation email note */}
       <p className="mt-6 text-xs text-gray-400 text-center">
-        A confirmation email has been sent to {tx.buyer_email}. Order ID:{" "}
-        {tx.id.slice(0, 8)}
+        Check your email at {tx.buyer_email} for your pickup coordination
+        link. Order ID: {tx.id.slice(0, 8)}
       </p>
 
       <div className="mt-8 text-center">

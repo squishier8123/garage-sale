@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe/client";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { signGuestToken } from "@/lib/auth/guest-token";
 import type Stripe from "stripe";
 
 const ESCROW_WINDOW_DAYS = 30;
@@ -51,7 +52,7 @@ export async function POST(request: Request) {
       // Idempotency: check if already processed
       const { data: existing } = await supabase
         .from("transactions")
-        .select("id, status, escrow_status")
+        .select("id, status, escrow_status, seller_id")
         .eq("id", transactionId)
         .single();
 
@@ -83,18 +84,47 @@ export async function POST(request: Request) {
         now.getTime() + ESCROW_WINDOW_DAYS * 24 * 60 * 60 * 1000,
       );
 
-      // Update transaction with payment details
+      const buyerEmail = session.customer_details?.email ?? "unknown";
+
+      // Generate guest buyer JWT for pickup/messaging access
+      let guestToken: string | null = null;
+      if (buyerEmail !== "unknown") {
+        guestToken = await signGuestToken({
+          transaction_id: transactionId,
+          buyer_email: buyerEmail,
+        });
+      }
+
+      // Fetch listing location for pickup address
+      let pickupAddress: string | null = null;
+      if (listingId) {
+        const { data: listing } = await supabase
+          .from("listings")
+          .select("location_city, location_state, location_zip")
+          .eq("id", listingId)
+          .single();
+
+        if (listing) {
+          pickupAddress = [listing.location_city, listing.location_state, listing.location_zip]
+            .filter(Boolean)
+            .join(", ");
+        }
+      }
+
+      // Update transaction with payment details + pickup info
       await supabase
         .from("transactions")
         .update({
           stripe_payment_intent_id: paymentIntentId,
           stripe_charge_id: chargeId ?? null,
-          buyer_email: session.customer_details?.email ?? "unknown",
+          buyer_email: buyerEmail,
           buyer_name: session.customer_details?.name ?? null,
           status: "payment_captured",
           escrow_status: "captured",
           captured_at: now.toISOString(),
           escrow_expires_at: escrowExpiresAt.toISOString(),
+          pickup_address: pickupAddress,
+          pickup_status: "pending",
         })
         .eq("id", transactionId);
 
@@ -104,6 +134,16 @@ export async function POST(request: Request) {
           .from("listings")
           .update({ status: "sold" })
           .eq("id", listingId);
+      }
+
+      // Insert system message with pickup link
+      if (guestToken) {
+        const pickupUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/transaction/${transactionId}?token=${guestToken}`;
+        await supabase.from("messages").insert({
+          transaction_id: transactionId,
+          sender_role: "system",
+          body: `Payment confirmed! Coordinate pickup details here. Your pickup link: ${pickupUrl}`,
+        });
       }
 
       break;
